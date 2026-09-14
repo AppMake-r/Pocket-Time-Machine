@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pocket Time Machine ⏳</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; padding:25px 18px;
+  background:#101827; color:#fff; font-family:Arial,Helvetica,sans-serif;
+}
+.app{width:min(650px,100%);margin:auto}
+h1{text-align:center;font-size:26px;margin:0 0 5px}
+.subtitle{text-align:center;color:#aab4c3;font-size:12px;margin:0 0 20px}
+label{display:block;font-size:12px;font-weight:bold;margin:14px 0 6px}
+textarea,input{
+  width:100%; border:0; outline:0; border-radius:5px;
+  background:#1c2738;color:#fff;font-family:Arial,Helvetica,sans-serif;
+}
+textarea{height:190px;resize:vertical;padding:10px;font-size:11px;line-height:1.5}
+input{height:42px;padding:10px;font-size:12px}
+button{
+  border:0;border-radius:5px;color:#fff;font-weight:bold;cursor:pointer;
+  font-family:Arial,Helvetica,sans-serif;transition:.15s;
+}
+button:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.lock{display:block;background:#6c5ce7;padding:10px 20px;margin:20px auto}
+h2{font-size:14px;margin:20px 0 8px}
+.capsules{display:flex;flex-direction:column;gap:7px}
+.capsule{
+  width:100%;padding:11px 12px;text-align:left;background:#1c2738;
+  color:#fff;font-size:10px;border:1px solid transparent;
+}
+.capsule.selected{border-color:#6c5ce7;background:#26344a}
+.capsule .status{font-weight:bold}
+.ready{color:#00b894}.locked{color:#aab4c3}
+.open{display:block;background:#00b894;padding:8px 15px;margin:10px auto}
+.empty{color:#68758a;font-size:10px;padding:8px 0}
+.notice{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
+  align-items:center;justify-content:center;padding:20px;
+}
+.dialog{
+  width:min(500px,100%);background:#101827;border:1px solid #2c3a51;
+  border-radius:10px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.4)
+}
+.dialog h3{margin:0 0 12px;font-size:16px}
+.dialog p{white-space:pre-wrap;color:#dce3ed;font-size:12px;line-height:1.6}
+.dialog button{background:#6c5ce7;padding:9px 18px;margin-top:8px}
+</style>
+</head>
+<body>
+<main class="app">
+  <h1>⏳ Pocket Time Machine</h1>
+  <p class="subtitle">Write something to your future self.</p>
+
+  <label for="message">Your message</label>
+  <textarea id="message" placeholder="Write a message to your future self..."></textarea>
+
+  <label for="date">Unlock date (YYYY-MM-DD)</label>
+  <input id="date" type="date">
+
+  <button class="lock" id="lockButton">🔒 Lock Message</button>
+
+  <h2>Your Time Capsules</h2>
+  <div id="capsules" class="capsules"></div>
+
+  <button class="open" id="openButton">🔓 Open Selected Capsule</button>
+</main>
+
+<div class="notice" id="notice">
+  <div class="dialog">
+    <h3 id="noticeTitle"></h3>
+    <p id="noticeText"></p>
+    <button id="closeNotice">OK</button>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY="time_capsules";
+let capsules=[];
+let selectedIndex=-1;
+
+const messageBox=document.getElementById("message");
+const dateInput=document.getElementById("date");
+const list=document.getElementById("capsules");
+const notice=document.getElementById("notice");
+const noticeTitle=document.getElementById("noticeTitle");
+const noticeText=document.getElementById("noticeText");
+
+function loadCapsules(){
+  try{capsules=JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]")}
+  catch(e){capsules=[]}
+}
+function saveCapsules(){
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(capsules));
+}
+function localDate(){
+  const d=new Date();
+  return new Date(d.getFullYear(),d.getMonth(),d.getDate());
+}
+function parseDate(s){
+  const [y,m,d]=s.split("-").map(Number);
+  return new Date(y,m-1,d);
+}
+function show(title,text){
+  noticeTitle.textContent=title;
+  noticeText.textContent=text;
+  notice.style.display="flex";
+}
+document.getElementById("closeNotice").onclick=()=>notice.style.display="none";
+notice.onclick=e=>{if(e.target===notice)notice.style.display="none"};
+
+function createCapsule(){
+  const message=messageBox.value.trim();
+  const date=dateInput.value;
+
+  if(!message){show("Error","Write a message first.");return}
+  if(!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)){
+    show("Invalid Date","Please enter the date in YYYY-MM-DD format.");
+    return;
+  }
+
+  const unlockDate=parseDate(date);
+  if(isNaN(unlockDate.getTime()) || unlockDate<=localDate()){
+    show("Invalid Date","Choose a future date.");
+    return;
+  }
+
+  capsules.push({message,unlock_date:date});
+  saveCapsules();
+  messageBox.value="";
+  dateInput.value="";
+  selectedIndex=-1;
+  refreshCapsules();
+  show("Locked!",`Your message is locked until ${date}.`);
+}
+
+function refreshCapsules(){
+  list.innerHTML="";
+  if(!capsules.length){
+    list.innerHTML='<div class="empty">No time capsules yet.</div>';
+    return;
+  }
+
+  const today=localDate();
+  capsules.forEach((capsule,i)=>{
+    const unlock=parseDate(capsule.unlock_date);
+    const ready=today>=unlock;
+
+    const btn=document.createElement("button");
+    btn.className="capsule"+(i===selectedIndex?" selected":"");
+    btn.innerHTML=ready
+      ? `<span class="status ready">🔓 READY TO OPEN</span> — Opens: ${escapeHtml(capsule.unlock_date)}`
+      : `<span class="status locked">🔒 LOCKED</span> — Opens: ${escapeHtml(capsule.unlock_date)}`;
+
+    btn.onclick=()=>{
+      selectedIndex=i;
+      refreshCapsules();
+    };
+    list.appendChild(btn);
+  });
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+}
+
+function openCapsule(){
+  if(selectedIndex<0){
+    show("Select a Capsule","Choose a time capsule first.");
+    return;
+  }
+
+  const capsule=capsules[selectedIndex];
+  const unlock=parseDate(capsule.unlock_date);
+  const today=localDate();
+
+  if(today<unlock){
+    const remaining=Math.ceil((unlock-today)/86400000);
+    show("Still Locked 🔒",
+      `This message is locked.\n\nIt will unlock on ${capsule.unlock_date}.\n${remaining} day(s) remaining.`);
+    return;
+  }
+
+  show("Your Message From The Past 💌",capsule.message);
+}
+
+document.getElementById("lockButton").onclick=createCapsule;
+document.getElementById("openButton").onclick=openCapsule;
+
+loadCapsules();
+refreshCapsules();
+</script>
+</body>
+</html>
